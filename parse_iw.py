@@ -319,7 +319,7 @@ class Parse:
             #ei_version = project.split('ecoinvent')[1]
             for db in bd.databases:
                 if "ecoinvent-" in db:
-                    ei_version = db.split('ecoinvent')[1]
+                    self.ei_version = db.split('ecoinvent')[1]
 
             bw_flows_with_codes = (
                 pd.DataFrame(
@@ -331,15 +331,15 @@ class Parse:
                     columns=['Elem flow name', 'Compartment', 'Sub-compartment', 'code'])
             )
 
-            if '3.10' in ei_version:
+            if '3.10' in self.ei_version:
                 ei_in_bw_normal = self.ei310_iw.merge(bw_flows_with_codes)
                 ei_in_bw_carbon_neutrality = self.ei310_iw_carbon_neutrality.merge(bw_flows_with_codes)
                 ei_in_bw_simple = self.simplified_version_ei310.merge(bw_flows_with_codes)
-            elif '3.11' in ei_version:
+            elif '3.11' in self.ei_version:
                 ei_in_bw_normal = self.ei311_iw.merge(bw_flows_with_codes)
                 ei_in_bw_carbon_neutrality = self.ei311_iw_carbon_neutrality.merge(bw_flows_with_codes)
                 ei_in_bw_simple = self.simplified_version_ei311.merge(bw_flows_with_codes)
-            elif '3.12' in ei_version:
+            elif '3.12' in self.ei_version:
                 ei_in_bw_normal = self.ei312_iw.merge(bw_flows_with_codes)
                 ei_in_bw_carbon_neutrality = self.ei312_iw_carbon_neutrality.merge(bw_flows_with_codes)
                 ei_in_bw_simple = self.simplified_version_ei312.merge(bw_flows_with_codes)
@@ -384,26 +384,26 @@ class Parse:
                         mid_end = 'Midpoint'
                         if ei_in_bw_format == 'normal':
                             name = ('IMPACT World+ ' + mid_end + ' ' + self.version + ' for ecoinvent v' +
-                                    ei_version + ' (incl. CO2 uptake)', 'Midpoint', ic[0])
+                                    self.ei_version + ' (incl. CO2 uptake)', 'Midpoint', ic[0])
                         elif ei_in_bw_format == 'carbon neutrality':
                             name = ('IMPACT World+ ' + mid_end + ' ' + self.version + ' for ecoinvent v' +
-                                    ei_version, 'Midpoint', ic[0])
+                                    self.ei_version, 'Midpoint', ic[0])
                     else:
                         mid_end = 'Damage'
                         if ic[1] == 'DALY':
                             if ei_in_bw_format == 'normal':
                                 name = ('IMPACT World+ ' + mid_end + ' ' + self.version + ' for ecoinvent v' +
-                                        ei_version + ' (incl. CO2 uptake)', 'Human health', ic[0])
+                                        self.ei_version + ' (incl. CO2 uptake)', 'Human health', ic[0])
                             elif ei_in_bw_format == 'carbon neutrality':
                                 name = ('IMPACT World+ ' + mid_end + ' ' + self.version + ' for ecoinvent v' +
-                                        ei_version, 'Human health', ic[0])
+                                        self.ei_version, 'Human health', ic[0])
                         else:
                             if ei_in_bw_format == 'normal':
                                 name = ('IMPACT World+ ' + mid_end + ' ' + self.version + ' for ecoinvent v' +
-                                        ei_version + ' (incl. CO2 uptake)', 'Ecosystem quality', ic[0])
+                                        self.ei_version + ' (incl. CO2 uptake)', 'Ecosystem quality', ic[0])
                             elif ei_in_bw_format == 'carbon neutrality':
                                 name = ('IMPACT World+ ' + mid_end + ' ' + self.version + ' for ecoinvent v' +
-                                        ei_version, 'Ecosystem quality', ic[0])
+                                        self.ei_version, 'Ecosystem quality', ic[0])
 
                     # initialize the "Method" method
                     new_method = bd.Method(name)
@@ -427,7 +427,7 @@ class Parse:
 
             for ic in impact_categories_simple:
 
-                name = ('IMPACT World+ Footprint ' + self.version + ' for ecoinvent v' + ei_version, ic[0])
+                name = ('IMPACT World+ Footprint ' + self.version + ' for ecoinvent v' + self.ei_version, ic[0])
 
                 # initialize the "Method" method
                 new_method = bd.Method(name)
@@ -1168,8 +1168,9 @@ class Parse:
         # brightway2 versions in bw2package format
         for project in self.bw2_projects:
             bd.projects.set_current(project)
+
             for ei_version in ['3.10', '3.11', '3.12']:
-                if ei_version in project:
+                if ei_version in self.ei_version:
                     IW_ic = [bd.Method(ic) for ic in list(bd.methods) if
                          ('IMPACT World+' in ic[0] and 'Footprint' not in ic[0] and
                           self.version in ic[0] and "for ecoinvent" in ic[0] and
