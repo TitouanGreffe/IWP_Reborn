@@ -316,7 +316,10 @@ class Parse:
             else:
                 biosphere_db_name = [i for i in bd.databases if 'biosphere' in i][0]
             bio = bd.Database(biosphere_db_name)
-            ei_version = project.split('ecoinvent')[1]
+            #ei_version = project.split('ecoinvent')[1]
+            for db in bd.databases:
+                if "ecoinvent-" in db:
+                    ei_version = db.split('ecoinvent')[1]
 
             bw_flows_with_codes = (
                 pd.DataFrame(
@@ -328,15 +331,15 @@ class Parse:
                     columns=['Elem flow name', 'Compartment', 'Sub-compartment', 'code'])
             )
 
-            if '3.10' in project:
+            if '3.10' in ei_version:
                 ei_in_bw_normal = self.ei310_iw.merge(bw_flows_with_codes)
                 ei_in_bw_carbon_neutrality = self.ei310_iw_carbon_neutrality.merge(bw_flows_with_codes)
                 ei_in_bw_simple = self.simplified_version_ei310.merge(bw_flows_with_codes)
-            elif '3.11' in project:
+            elif '3.11' in ei_version:
                 ei_in_bw_normal = self.ei311_iw.merge(bw_flows_with_codes)
                 ei_in_bw_carbon_neutrality = self.ei311_iw_carbon_neutrality.merge(bw_flows_with_codes)
                 ei_in_bw_simple = self.simplified_version_ei311.merge(bw_flows_with_codes)
-            elif '3.12' in project:
+            elif '3.12' in ei_version:
                 ei_in_bw_normal = self.ei312_iw.merge(bw_flows_with_codes)
                 ei_in_bw_carbon_neutrality = self.ei312_iw_carbon_neutrality.merge(bw_flows_with_codes)
                 ei_in_bw_simple = self.simplified_version_ei312.merge(bw_flows_with_codes)
