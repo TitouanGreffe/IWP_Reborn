@@ -297,7 +297,7 @@ class Parse:
         self.export_to_bw()
         self.produce_files(bw_only=True)
 
-    def export_to_bw(self):
+    def export_to_bw(self,all_iwp_flows:bool=False):
         """
         This method creates a brightway2 or brightway2.5 method with the IW+ characterization 
         factors.
@@ -341,6 +341,10 @@ class Parse:
                 ei_in_bw_simple = self.simplified_version_ei311.merge(bw_flows_with_codes)
             elif '3.12' in self.ei_version:
                 ei_in_bw_normal = self.ei312_iw.merge(bw_flows_with_codes)
+                iwp_substances_in_ei = self.elem_flow_list.merge(ei_in_bw_normal,left_on = ["Name IW+"],
+                                                                 right_on=['Elem flow name'],
+                                                                 how="left",indicator=True)
+                self.iwp_substances_not_in_ei = iwp_substances_in_ei[iwp_substances_in_ei["_merge"]=="left_only"].drop(columns=["_merge"])
                 ei_in_bw_carbon_neutrality = self.ei312_iw_carbon_neutrality.merge(bw_flows_with_codes)
                 ei_in_bw_simple = self.simplified_version_ei312.merge(bw_flows_with_codes)
             for ei_in_bw_format in ['normal', 'carbon neutrality']:
@@ -377,6 +381,36 @@ class Parse:
                 ei_in_bw = ei_in_bw.reset_index()
                 ei_in_bw.set_index(['Impact category', 'CF unit'], inplace=True)
                 impact_categories = ei_in_bw.index.drop_duplicates()
+
+                if all_iwp_flows:
+                    self.logger.info("Creating biosphere3_plus database...")
+                    categories_dict = {}
+                    biosphere_plus_dict = {}
+                    self.biosphere_plus_name = "biosphere3_plus"
+                    for i in list(self.iwp_substances_not_in_ei.loc[:,"Name IW+"]):
+                        list_comp_tuples = list(zip(self.master_db[self.master_db.loc[:,"Elem flow name"]==i].loc[:,"Compartment"],self.master_db[self.master_db.loc[:,"Elem flow name"]==i].loc[:,"Sub-compartment"]))
+                        for cat in list_comp_tuples:
+                            code = self.master_db[(self.master_db.loc[:,"Elem flow name"==i])&(self.master_db.loc[:,"Compartment"==cat[0]])&(self.master_db.loc[:,"Sub-compartment"==cat[1]])].loc[:,"code"].iloc[0]
+                            biosphere_plus_dict[(self.biosphere_plus_name,code)] = {
+                                "name": i,
+                                "unit": "kilogram",
+                                "type": "biosphere",
+                                "categories":(self.comps_ei[cat[0]], self.subcomps_ei[cat[1]]),
+                                "code": code
+                            }
+                    bd.Database(self.biosphere_plus_name).write(biosphere_plus_dict)
+
+                    bio_plus = bd.Database(self.biosphere_plus_name)
+                    self.bio_plus_flows_with_codes = (
+                        pd.DataFrame(
+                            [(i.as_dict()['name'], i.as_dict()['categories'][0], i.as_dict()['categories'][1],
+                              i.as_dict()['code'])
+                             if len(i.as_dict()['categories']) == 2
+                             else (i.as_dict()['name'], i.as_dict()['categories'][0], 'unspecified',
+                                   i.as_dict()['code'])
+                             for i in bio_plus],
+                            columns=['Elem flow name', 'Compartment', 'Sub-compartment', 'code'])
+                    )
 
                 # -------------- For complete version of IW+ ----------------
                 for ic in impact_categories:
@@ -418,6 +452,13 @@ class Parse:
                     data = []
                     for stressor in df.index:
                         data.append(((biosphere_db_name, stressor), df.loc[stressor, 'CF value']))
+
+                    if all_iwp_flows:
+                        df_plus = self.master_db[(self.master_db.loc[:,"Impact category"]==ic)&(self.master_db.loc[:,"Elem flow name"].isin(list(self.bio_plus_flows_with_codes.loc[:,"Elem flow name"])))].loc[:, ['code', 'CF value']].copy()
+                        df_plus.set_index('code', inplace=True)
+                        for stressor in df_plus.index:
+                            data.append(((self.biosphere_plus_name, stressor), df_plus.loc[stressor, 'CF value']))
+
                     new_method.write(data)
 
             # -------------- For simplified version of IW+ ----------------
@@ -1328,18 +1369,18 @@ class Parse:
         self.logger.info("Loading mineral resources characterization factors...")
         minerals = pd.read_sql(sql='SELECT * FROM [CF - not regionalized - MineralResources]', con=self.conn)
 
-        elem_flow_list = pd.read_sql(sql='SELECT * FROM [SI - Mapping with elementary flows]', con=self.conn)
+        self.elem_flow_list = pd.read_sql(sql='SELECT * FROM [SI - Mapping with elementary flows]', con=self.conn)
 
         self.logger.info("Loading toxicity characterization factors...")
         toxicity = pd.read_sql(sql='SELECT * FROM [CF - not regionalized - HumanTox]', con=self.conn)
-        toxicity = toxicity.merge(elem_flow_list.loc[:, ['Name IW+', 'CAS-Usetox2_FW']], left_on=['CAS number'],
+        toxicity = toxicity.merge(self.elem_flow_list.loc[:, ['Name IW+', 'CAS-Usetox2_FW']], left_on=['CAS number'],
                                   right_on=['CAS-Usetox2_FW'], how='left').drop_duplicates()
         toxicity = toxicity.drop(['Elem flow name', 'CAS number'], axis=1)
         toxicity = toxicity.rename(columns={'Name IW+': 'Elem flow name', 'CAS-Usetox2_FW': 'CAS number'})
 
         self.logger.info("Loading freshwater ecotoxicity characterization factors...")
         fw_ecotoxicity = pd.read_sql(sql='SELECT * FROM [CF - not regionalized - FreshwaterEcotox]', con=self.conn)
-        fw_ecotoxicity = fw_ecotoxicity.merge(elem_flow_list.loc[:, ['Name IW+', 'CAS-Usetox2_FW']],
+        fw_ecotoxicity = fw_ecotoxicity.merge(self.elem_flow_list.loc[:, ['Name IW+', 'CAS-Usetox2_FW']],
                                               left_on=['CAS number'],
                                               right_on=['CAS-Usetox2_FW'], how='left').drop_duplicates()
         fw_ecotoxicity = fw_ecotoxicity.drop(['Elem flow name', 'CAS number'], axis=1)
@@ -1347,7 +1388,7 @@ class Parse:
 
         self.logger.info("Loading marine ecotoxicity characterization factors...")
         mar_ecotoxicity = pd.read_sql('SELECT * FROM [CF - not regionalized - MarineEcotox]', self.conn)
-        mar_ecotoxicity = mar_ecotoxicity.merge(elem_flow_list.loc[:, ['Name IW+', 'CAS-Usetox2_Mar_Terr']],
+        mar_ecotoxicity = mar_ecotoxicity.merge(self.elem_flow_list.loc[:, ['Name IW+', 'CAS-Usetox2_Mar_Terr']],
                                                 left_on=['CAS number'],
                                                 right_on=['CAS-Usetox2_Mar_Terr'], how='left').drop_duplicates()
         mar_ecotoxicity = mar_ecotoxicity.drop(['Elem flow name', 'CAS number'], axis=1)
@@ -1356,7 +1397,7 @@ class Parse:
 
         self.logger.info("Loading terrestrial ecotoxicity characterization factors...")
         terr_ecotoxicity = pd.read_sql('SELECT * FROM [CF - not regionalized - TerrestrialEcotox]', self.conn)
-        terr_ecotoxicity = terr_ecotoxicity.merge(elem_flow_list.loc[:, ['Name IW+', 'CAS-Usetox2_Mar_Terr']],
+        terr_ecotoxicity = terr_ecotoxicity.merge(self.elem_flow_list.loc[:, ['Name IW+', 'CAS-Usetox2_Mar_Terr']],
                                                   left_on=['CAS number'],
                                                   right_on=['CAS-Usetox2_Mar_Terr'], how='left').drop_duplicates()
         terr_ecotoxicity = terr_ecotoxicity.drop(['Elem flow name', 'CAS number'], axis=1)
@@ -4580,13 +4621,13 @@ class Parse:
 
             with open(pkg_resources.resource_filename(
                     __name__, "Data/mappings/ei" + latest_ei_version.replace('.', '') + "/comps.json"), "r") as f:
-                comps = json.load(f)
+                self.comps_ei = json.load(f)
             with open(pkg_resources.resource_filename(
                     __name__, "Data/mappings/ei" + latest_ei_version.replace('.', '') + "/subcomps.json"), "r") as f:
-                subcomps = json.load(f)
+                self.subcomps_ei = json.load(f)
 
-            ei_iw_db.Compartment = [comps[i] for i in ei_iw_db.Compartment]
-            ei_iw_db.loc[:, 'Sub-compartment'] = [subcomps[i] if i in subcomps else None for i in
+            ei_iw_db.Compartment = [self.comps_ei[i] for i in ei_iw_db.Compartment]
+            ei_iw_db.loc[:, 'Sub-compartment'] = [self.subcomps_ei[i] if i in self.subcomps_ei else None for i in
                                                   ei_iw_db.loc[:, 'Sub-compartment']]
 
             # special cases: forestry subcomp = unspecified subcomp
