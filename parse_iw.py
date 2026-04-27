@@ -245,6 +245,9 @@ class Parse:
         self.logger.info("Create non-regionalized version for ecoinvent...")
         self.separate_regio_cfs()
 
+        self.logger.info("Adding unique UUID to IWP flows in master_db...")
+        self.add_uuid_elem_flows()
+
         self.logger.info("Linking to ecoinvent elementary flows...")
         self.link_to_ecoinvent()
 
@@ -391,9 +394,10 @@ class Parse:
                         list_comp_tuples = list(zip(self.master_db[self.master_db.loc[:,"Elem flow name"]==i].loc[:,"Compartment"],self.master_db[self.master_db.loc[:,"Elem flow name"]==i].loc[:,"Sub-compartment"]))
                         for cat in list_comp_tuples:
                             code = self.master_db[(self.master_db.loc[:,"Elem flow name"==i])&(self.master_db.loc[:,"Compartment"==cat[0]])&(self.master_db.loc[:,"Sub-compartment"==cat[1]])].loc[:,"code"].iloc[0]
+                            unit = self.master_db[(self.master_db.loc[:,"Elem flow name"==i])&(self.master_db.loc[:,"Compartment"==cat[0]])&(self.master_db.loc[:,"Sub-compartment"==cat[1]])].loc[:,"Elem flow unit"].iloc[0]
                             biosphere_plus_dict[(self.biosphere_plus_name,code)] = {
                                 "name": i,
-                                "unit": "kilogram",
+                                "unit": self.units[unit],
                                 "type": "biosphere",
                                 "categories":(self.comps_ei[cat[0]], self.subcomps_ei[cat[1]]),
                                 "code": code
@@ -4238,6 +4242,24 @@ class Parse:
         self.master_db = pd.concat([self.master_db, df])
         self.master_db = clean_up_dataframe(self.master_db)
 
+    def add_uuid_elem_flows(self):
+        cols = ["Compartment", "Sub-compartment", "Elem flow name"]
+        unique_tuples = list(
+            self.master_db[cols]
+            .drop_duplicates()
+            .itertuples(index=False, name=None)
+        )
+        tuple_to_uuid = {
+            t: uuid.uuid4().hex
+            for t in unique_tuples
+        }
+        self.master_db["code"] = (
+            self.master_db[cols]
+            .apply(tuple, axis=1)
+            .map(tuple_to_uuid)
+        )
+
+
     def create_not_regio_flows(self):
         """
         Method creates not regionalized flows (e.g., "Ammonia") from global values (e.g., "Ammonia, GLO"). Those flows
@@ -4625,6 +4647,9 @@ class Parse:
             with open(pkg_resources.resource_filename(
                     __name__, "Data/mappings/ei" + latest_ei_version.replace('.', '') + "/subcomps.json"), "r") as f:
                 self.subcomps_ei = json.load(f)
+            with open(pkg_resources.resource_filename(
+                    __name__, "Data/mappings/ei" + latest_ei_version.replace('.', '') + "/units.json"), "r") as f:
+                self.units = json.load(f)
 
             ei_iw_db.Compartment = [self.comps_ei[i] for i in ei_iw_db.Compartment]
             ei_iw_db.loc[:, 'Sub-compartment'] = [self.subcomps_ei[i] if i in self.subcomps_ei else None for i in
