@@ -38,8 +38,8 @@ import logging
 import sqlite3
 import math
 import molmass
-import olca_ipc as ipc
-import olca_schema as schema
+#import olca_ipc as ipc
+#import olca_schema as schema
 from scipy.stats import gmean
 from tqdm import tqdm
 
@@ -179,7 +179,7 @@ class Parse:
         # Open openLCA. Open a database. Go to Tools/Dev tools/IPC server. Create a server with the local port 8080
         # (comes by default). Activate the port (the green olay arrow)
         # then we simply connect to that port. Now Python and openLCA can communicate via the "client" we created
-        self.olca_client = ipc.Client(8080)
+        #self.olca_client = ipc.Client(8080)
         # check if the opening of the openLCA client is activated or not
         try:
             self.olca_client.get_descriptor(schema.Unit, name='kg')
@@ -385,36 +385,32 @@ class Parse:
                 ei_in_bw.set_index(['Impact category', 'CF unit'], inplace=True)
                 impact_categories = ei_in_bw.index.drop_duplicates()
 
-                if all_iwp_flows:
-                    self.logger.info("Creating biosphere3_plus database...")
-                    categories_dict = {}
-                    biosphere_plus_dict = {}
-                    self.biosphere_plus_name = "biosphere3_plus"
-                    for i in list(self.iwp_substances_not_in_ei.loc[:,"Name IW+"]):
-                        list_comp_tuples = list(zip(self.master_db[self.master_db.loc[:,"Elem flow name"]==i].loc[:,"Compartment"],self.master_db[self.master_db.loc[:,"Elem flow name"]==i].loc[:,"Sub-compartment"]))
-                        for cat in list_comp_tuples:
-                            code = self.master_db[(self.master_db.loc[:,"Elem flow name"==i])&(self.master_db.loc[:,"Compartment"==cat[0]])&(self.master_db.loc[:,"Sub-compartment"==cat[1]])].loc[:,"code"].iloc[0]
-                            unit = self.master_db[(self.master_db.loc[:,"Elem flow name"==i])&(self.master_db.loc[:,"Compartment"==cat[0]])&(self.master_db.loc[:,"Sub-compartment"==cat[1]])].loc[:,"Elem flow unit"].iloc[0]
-                            biosphere_plus_dict[(self.biosphere_plus_name,code)] = {
-                                "name": i,
-                                "unit": self.units[unit],
-                                "type": "biosphere",
-                                "categories":(self.comps_ei[cat[0]], self.subcomps_ei[cat[1]]),
-                                "code": code
-                            }
-                    bd.Database(self.biosphere_plus_name).write(biosphere_plus_dict)
+            if all_iwp_flows:
+                self.logger.info("Creating biosphere3_plus database...")
+                categories_dict = {}
+                biosphere_plus_dict = {}
+                self.biosphere_plus_name = "biosphere3_plus"
+                self.df_biosphere_plus = self.master_db[self.master_db.loc[:, "Elem flow name"].isin(self.iwp_substances_not_in_ei.loc[:, "Name IW+"])].drop_duplicates(subset=["Elem flow name", "Compartment", "Sub-compartment"])
+                for i in self.df_biosphere_plus.index:
+                    biosphere_plus_dict[(self.biosphere_plus_name,self.df_biosphere_plus.loc[i,"code"])] = {
+                        "name": self.df_biosphere_plus.loc[i,"Elem flow name"],
+                        "unit": self.units[self.df_biosphere_plus.loc[i,"Elem flow unit"]],
+                        "type": "biosphere",
+                        "categories":(self.comps_ei[self.df_biosphere_plus.loc[i,"Compartment"]], self.subcomps_ei[self.df_biosphere_plus.loc[i,"Sub-compartment"]]),
+                        "code": self.df_biosphere_plus.loc[i,"code"]}
+                bd.Database(self.biosphere_plus_name).write(biosphere_plus_dict)
 
-                    bio_plus = bd.Database(self.biosphere_plus_name)
-                    self.bio_plus_flows_with_codes = (
-                        pd.DataFrame(
-                            [(i.as_dict()['name'], i.as_dict()['categories'][0], i.as_dict()['categories'][1],
-                              i.as_dict()['code'])
-                             if len(i.as_dict()['categories']) == 2
-                             else (i.as_dict()['name'], i.as_dict()['categories'][0], 'unspecified',
-                                   i.as_dict()['code'])
-                             for i in bio_plus],
-                            columns=['Elem flow name', 'Compartment', 'Sub-compartment', 'code'])
-                    )
+                bio_plus = bd.Database(self.biosphere_plus_name)
+                self.bio_plus_flows_with_codes = (
+                    pd.DataFrame(
+                        [(i.as_dict()['name'], i.as_dict()['categories'][0], i.as_dict()['categories'][1],
+                          i.as_dict()['code'])
+                         if len(i.as_dict()['categories']) == 2
+                         else (i.as_dict()['name'], i.as_dict()['categories'][0], 'unspecified',
+                               i.as_dict()['code'])
+                         for i in bio_plus],
+                        columns=['Elem flow name', 'Compartment', 'Sub-compartment', 'code'])
+                )
 
                 # -------------- For complete version of IW+ ----------------
                 for ic in impact_categories:
@@ -460,8 +456,8 @@ class Parse:
                     if all_iwp_flows:
                         df_plus = self.master_db[(self.master_db.loc[:,"Impact category"]==ic)&(self.master_db.loc[:,"Elem flow name"].isin(list(self.bio_plus_flows_with_codes.loc[:,"Elem flow name"])))].loc[:, ['code', 'CF value']].copy()
                         df_plus.set_index('code', inplace=True)
-                        for stressor in df_plus.index:
-                            data.append(((self.biosphere_plus_name, stressor), df_plus.loc[stressor, 'CF value']))
+                        for i in df_plus.index:
+                            data.append(((self.biosphere_plus_name, df_plus.loc[i,"code"]), df_plus.loc[i, 'CF value']))
 
                     new_method.write(data)
 
