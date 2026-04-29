@@ -398,6 +398,10 @@ class Parse:
                         "type": "biosphere",
                         "categories":(self.comps_ei[self.df_biosphere_plus.loc[i,"Compartment"]], self.subcomps_ei[self.df_biosphere_plus.loc[i,"Sub-compartment"]]),
                         "code": self.df_biosphere_plus.loc[i,"code"]}
+
+                if self.biosphere_plus_name in bd.databases:
+                    del bd.databases[self.biosphere_plus_name]
+
                 bd.Database(self.biosphere_plus_name).write(biosphere_plus_dict)
 
                 bio_plus = bd.Database(self.biosphere_plus_name)
@@ -439,6 +443,7 @@ class Parse:
                                 name = ('IMPACT World+ ' + mid_end + ' ' + self.version + ' for ecoinvent v' +
                                         self.ei_version, 'Ecosystem quality', ic[0])
 
+
                     # initialize the "Method" method
                     new_method = bd.Method(name)
                     # register the new method
@@ -454,11 +459,13 @@ class Parse:
                         data.append(((biosphere_db_name, stressor), df.loc[stressor, 'CF value']))
 
                     if all_iwp_flows:
-                        df_plus = self.master_db[(self.master_db.loc[:,"Impact category"]==ic)&(self.master_db.loc[:,"Elem flow name"].isin(list(self.bio_plus_flows_with_codes.loc[:,"Elem flow name"])))].loc[:, ['code', 'CF value']].copy()
-                        df_plus.set_index('code', inplace=True)
-                        for i in df_plus.index:
-                            data.append(((self.biosphere_plus_name, df_plus.loc[i,"code"]), df_plus.loc[i, 'CF value']))
+                        self.logger.info("Adding biosphere3_plus IW+ CFs...")
+                        self.df_plus = self.master_db[(self.master_db.loc[:,"Impact category"]==ic[0])&(self.master_db.loc[:,"CF unit"]==ic[1])&(self.master_db.loc[:,"Elem flow name"].isin(list(self.bio_plus_flows_with_codes.loc[:,"Elem flow name"])))].loc[:, ['code', 'CF value']].copy()
+                        self.df_plus.set_index('code', inplace=True)
+                        for stressor in self.df_plus.index:
+                            data.append(((self.biosphere_plus_name, stressor), self.df_plus.loc[stressor, 'CF value']))
 
+                    self.logger.info("Writing method"+str(name)+" in bw...")
                     new_method.write(data)
 
             # -------------- For simplified version of IW+ ----------------
@@ -2076,31 +2083,50 @@ class Parse:
         data.loc[:, 'Native geographical resolution scale'] = 'Not regionalized'
 
         # the CFs must be created for all compartments and sub-compartments possible
-        data.loc[:, 'Compartment'] = 'Air'
-        data.loc[:, 'Sub-compartment'] = '(unspecified)'
-        water_comp_data = data.copy()
-        water_comp_data.loc[:, 'Compartment'] = 'Water'
-        soil_comp_data = data.copy()
-        soil_comp_data.loc[:, 'Compartment'] = 'Soil'
+        mask = ~data["Elem flow name"].str.contains("in technosphere", na=False)
+        mask_tec = ~mask  # simpler
 
-        data = pd.concat([data, water_comp_data, soil_comp_data]).reset_index().drop('index', axis=1)
+        # Only fill missing values
+        data.loc[mask, "Compartment"] = "Air"
+        data.loc[mask, "Sub-compartment"] = "(unspecified)"
+
+        data.loc[mask_tec, "Compartment"] = "Technosphere"
+        data.loc[mask_tec, "Sub-compartment"] = "(unspecified)"
+
+        # Now build derived datasets
+        base = data.loc[mask].copy()
+
+        water_comp_data = base.copy()
+        water_comp_data["Compartment"] = "Water"
+
+        soil_comp_data = base.copy()
+        soil_comp_data["Compartment"] = "Soil"
+
+        technosphere_comp_data = data.loc[mask_tec].copy()
+
+        data = pd.concat([data, water_comp_data, soil_comp_data,technosphere_comp_data]).reset_index().drop('index', axis=1)
 
         subcomps_air = ['high. pop.', 'indoor', 'low. pop.', 'low. pop., long-term', 'stratosphere + troposphere']
         subcomps_water = ['lake', 'river', 'ocean', 'groundwater', 'groundwater, long-term']
         subcomps_soil = ['agricultural', 'forestry', 'industrial']
+        subcomps_technosphere = ["tailings","landfill","in product"]
 
         for subcomp in subcomps_air:
-            df = data[data.Compartment == 'Air'].copy()
+            df = data[(data["Compartment"] == "Air") &(~data["Elem flow name"].str.contains("in technosphere", na=False))].copy()
             df.loc[:, 'Sub-compartment'] = subcomp
-            data = pd.concat([data, df])
+            data = pd.concat([data, df], ignore_index=True)
         for subcomp in subcomps_water:
-            df = data[data.Compartment == 'Water'].copy()
+            df = data[(data["Compartment"] == "Water") &(~data["Elem flow name"].str.contains("in technosphere", na=False))].copy()
             df.loc[:, 'Sub-compartment'] = subcomp
-            data = pd.concat([data, df])
+            data = pd.concat([data, df], ignore_index=True)
         for subcomp in subcomps_soil:
-            df = data[data.Compartment == 'Soil'].copy()
+            df = data[(data["Compartment"] == "Soil") &(~data["Elem flow name"].str.contains("in technosphere", na=False))].copy()
             df.loc[:, 'Sub-compartment'] = subcomp
-            data = pd.concat([data, df])
+            data = pd.concat([data, df], ignore_index=True)
+        for subcomp in subcomps_technosphere:
+            df = data[(data["Compartment"] == "Technosphere") &(data["Elem flow name"].str.contains("in technosphere", na=False))].copy()
+            df.loc[:, 'Sub-compartment'] = subcomp
+            data = pd.concat([data, df], ignore_index=True)
 
         data = data.reset_index().drop('index', axis=1)
 
@@ -2124,31 +2150,50 @@ class Parse:
         data.loc[:, 'Native geographical resolution scale'] = 'Not regionalized'
 
         # the CFs must be created for all compartments and sub-compartments possible
-        data.loc[:, 'Compartment'] = 'Air'
-        data.loc[:, 'Sub-compartment'] = '(unspecified)'
-        water_comp_data = data.copy()
-        water_comp_data.loc[:, 'Compartment'] = 'Water'
-        soil_comp_data = data.copy()
-        soil_comp_data.loc[:, 'Compartment'] = 'Soil'
+        mask = ~data["Elem flow name"].str.contains("in technosphere", na=False)
+        mask_tec = ~mask  # simpler
 
-        data = pd.concat([data, water_comp_data, soil_comp_data]).reset_index().drop('index', axis=1)
+        # Only fill missing values
+        data.loc[mask, "Compartment"] = "Air"
+        data.loc[mask, "Sub-compartment"] = "(unspecified)"
+
+        data.loc[mask_tec, "Compartment"] = "Technosphere"
+        data.loc[mask_tec, "Sub-compartment"] = "(unspecified)"
+
+        # Now build derived datasets
+        base = data.loc[mask].copy()
+
+        water_comp_data = base.copy()
+        water_comp_data["Compartment"] = "Water"
+
+        soil_comp_data = base.copy()
+        soil_comp_data["Compartment"] = "Soil"
+
+        technosphere_comp_data = data.loc[mask_tec].copy()
+
+        data = pd.concat([data, water_comp_data, soil_comp_data,technosphere_comp_data]).reset_index().drop('index', axis=1)
 
         subcomps_air = ['high. pop.', 'indoor', 'low. pop.', 'low. pop., long-term', 'stratosphere + troposphere']
         subcomps_water = ['lake', 'river', 'ocean', 'groundwater', 'groundwater, long-term']
         subcomps_soil = ['agricultural', 'forestry', 'industrial']
+        subcomps_technosphere = ["tailings", "landfill", "in product"]
 
         for subcomp in subcomps_air:
-            df = data[data.Compartment == 'Air'].copy()
+            df = data[(data["Compartment"] == "Air") &(~data["Elem flow name"].str.contains("in technosphere", na=False))].copy()
             df.loc[:, 'Sub-compartment'] = subcomp
-            data = pd.concat([data, df])
+            data = pd.concat([data, df], ignore_index=True)
         for subcomp in subcomps_water:
-            df = data[data.Compartment == 'Water'].copy()
+            df = data[(data["Compartment"] == "Water") &(~data["Elem flow name"].str.contains("in technosphere", na=False))].copy()
             df.loc[:, 'Sub-compartment'] = subcomp
-            data = pd.concat([data, df])
+            data = pd.concat([data, df], ignore_index=True)
         for subcomp in subcomps_soil:
-            df = data[data.Compartment == 'Soil'].copy()
+            df = data[(data["Compartment"] == "Soil") &(~data["Elem flow name"].str.contains("in technosphere", na=False))].copy()
             df.loc[:, 'Sub-compartment'] = subcomp
-            data = pd.concat([data, df])
+            data = pd.concat([data, df], ignore_index=True)
+        for subcomp in subcomps_technosphere:
+            df = data[(data["Compartment"] == "Technosphere") &(data["Elem flow name"].str.contains("in technosphere", na=False))].copy()
+            df.loc[:, 'Sub-compartment'] = subcomp
+            data = pd.concat([data, df], ignore_index=True)
 
         data = data.reset_index().drop('index', axis=1)
 
