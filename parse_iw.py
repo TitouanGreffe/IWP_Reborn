@@ -38,8 +38,8 @@ import logging
 import sqlite3
 import math
 import molmass
-#import olca_ipc as ipc
-#import olca_schema as schema
+import olca_ipc as ipc
+import olca_schema as schema
 from scipy.stats import gmean
 from tqdm import tqdm
 
@@ -179,7 +179,7 @@ class Parse:
         # Open openLCA. Open a database. Go to Tools/Dev tools/IPC server. Create a server with the local port 8080
         # (comes by default). Activate the port (the green olay arrow)
         # then we simply connect to that port. Now Python and openLCA can communicate via the "client" we created
-        #self.olca_client = ipc.Client(8080)
+        self.olca_client = ipc.Client(8080)
         # check if the opening of the openLCA client is activated or not
         try:
             self.olca_client.get_descriptor(schema.Unit, name='kg')
